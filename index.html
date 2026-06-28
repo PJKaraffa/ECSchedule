@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Late Schedule Generator</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      padding: 30px;
+      color: #222;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: auto;
+      background: white;
+      padding: 25px;
+      border-radius: 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.08);
+    }
+
+    h1 {
+      margin-top: 0;
+      color: #1f3a5f;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+      display: block;
+    }
+
+    input, textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+
+    textarea {
+      min-height: 90px;
+    }
+
+    .buttons {
+      margin-top: 20px;
+    }
+
+    button {
+      background: #1f6feb;
+      color: white;
+      border: none;
+      padding: 11px 18px;
+      border-radius: 8px;
+      font-size: 15px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+
+    button.secondary {
+      background: #2e7d32;
+    }
+
+    button:hover {
+      opacity: .9;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 25px;
+      background: white;
+    }
+
+    th {
+      background: #1f3a5f;
+      color: white;
+      padding: 10px;
+    }
+
+    td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: center;
+    }
+
+    tr:nth-child(even) {
+      background: #f7f9fc;
+    }
+
+    .late {
+      background: #fff3cd;
+      font-weight: bold;
+    }
+
+    .early {
+      background: #e8f5e9;
+    }
+
+    .note {
+      color: #666;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <h1>Monthly Late Schedule Generator</h1>
+
+  <div class="grid">
+    <div>
+      <label>Month</label>
+      <input type="number" id="month" value="8" min="1" max="12">
+    </div>
+
+    <div>
+      <label>Year</label>
+      <input type="number" id="year" value="2026">
+    </div>
+  </div>
+
+  <label>People</label>
+  <input type="text" id="people" value="Sharika,Lisa,Michelle,Tina,Justin">
+  <div class="note">Separate names with commas.</div>
+
+  <div class="grid">
+    <div>
+      <label>Vacation Days</label>
+      <textarea id="vacations">Sharika,08-11-2026
+Lisa,08-18-2026</textarea>
+      <div class="note">Format: Name,MM-DD-YYYY</div>
+    </div>
+
+    <div>
+      <label>School Days Off</label>
+      <textarea id="daysOff">08-25-2026</textarea>
+      <div class="note">Format: MM-DD-YYYY</div>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button onclick="generateSchedule()">Generate Schedule</button>
+    <button class="secondary" onclick="exportCSV()">Export CSV</button>
+    <button class="secondary" onclick="exportExcel()">Export Excel</button>
+  </div>
+
+  <div id="output"></div>
+
+</div>
+
+<script>
+let scheduleRows = [];
+
+function generateSchedule() {
+  const month = Number(document.getElementById("month").value);
+  const year = Number(document.getElementById("year").value);
+
+  const people = document.getElementById("people").value
+    .split(",")
+    .map(x => x.trim())
+    .filter(x => x !== "");
+
+  const vacations = document.getElementById("vacations").value
+    .split("\n")
+    .map(x => x.trim())
+    .filter(x => x !== "");
+
+  const daysOff = document.getElementById("daysOff").value
+    .split("\n")
+    .map(x => x.trim())
+    .filter(x => x !== "");
+
+  const lateCount = {};
+  people.forEach(p => lateCount[p] = 0);
+
+  scheduleRows = [];
+
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+
+  for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+
+    if (d.getDay() === 2) {
+
+      let lateDate = getNextSchoolDay(new Date(d), lastDay, daysOff);
+      if (!lateDate) continue;
+
+      let latePeople = getLatePeople(people, lateCount, lateDate, vacations, 2);
+
+      let earlyPeople = people.filter(p =>
+        !latePeople.includes(p) &&
+        !isOnVacation(p, lateDate, vacations)
+      );
+
+      latePeople.forEach(p => lateCount[p]++);
+
+      scheduleRows.push({
+        date: formatDate(lateDate),
+        day: lateDate.toLocaleDateString("en-US", { weekday: "long" }),
+        early1: earlyPeople[0] || "",
+        early2: earlyPeople[1] || "",
+        early3: earlyPeople[2] || "",
+        late1: latePeople[0] || "",
+        late2: latePeople[1] || ""
+      });
+    }
+  }
+
+  drawTable(scheduleRows);
+}
+
+function getNextSchoolDay(startDate, lastDay, daysOff) {
+  for (let d = new Date(startDate); d <= lastDay; d.setDate(d.getDate() + 1)) {
+    if (d.getDay() >= 1 && d.getDay() <= 5 && !isSchoolDayOff(d, daysOff)) {
+      return new Date(d);
+    }
+  }
+
+  return null;
+}
+
+function getLatePeople(people, lateCount, workDate, vacations, lateSlots) {
+  let result = [];
+
+  for (let slot = 0; slot < lateSlots; slot++) {
+    let bestPerson = "";
+    let lowestCount = 999999;
+
+    for (let person of people) {
+
+      if (isOnVacation(person, workDate, vacations)) continue;
+      if (result.includes(person)) continue;
+
+      if (
+        (person === "Sharika" && result.includes("Lisa")) ||
+        (person === "Lisa" && result.includes("Sharika"))
+      ) {
+        continue;
+      }
+
+      if (lateCount[person] < lowestCount) {
+        lowestCount = lateCount[person];
+        bestPerson = person;
+      }
+    }
+
+    if (bestPerson !== "") {
+      result.push(bestPerson);
+    }
+  }
+
+  return result;
+}
+
+function isOnVacation(person, date, vacations) {
+  const dateText = formatDate(date);
+
+  return vacations.some(row => {
+    const parts = row.split(",");
+
+    return parts.length >= 2 &&
+           parts[0].trim() === person &&
+           parts[1].trim() === dateText;
+  });
+}
+
+function isSchoolDayOff(date, daysOff) {
+  return daysOff.includes(formatDate(date));
+}
+
+function formatDate(date) {
+  let mm = String(date.getMonth() + 1).padStart(2, "0");
+  let dd = String(date.getDate()).padStart(2, "0");
+  let yyyy = date.getFullYear();
+
+  return `${mm}-${dd}-${yyyy}`;
+}
+
+function drawTable(rows) {
+  let html = `
+    <table id="scheduleTable">
+      <tr>
+        <th>Date</th>
+        <th>Day</th>
+        <th>Early</th>
+        <th>Early</th>
+        <th>Early</th>
+        <th>Late</th>
+        <th>Late</th>
+      </tr>
+  `;
+
+  rows.forEach(row => {
+    html += `
+      <tr>
+        <td>${row.date}</td>
+        <td>${row.day}</td>
+        <td class="early">${row.early1}</td>
+        <td class="early">${row.early2}</td>
+        <td class="early">${row.early3}</td>
+        <td class="late">${row.late1}</td>
+        <td class="late">${row.late2}</td>
+      </tr>
+    `;
+  });
+
+  html += `</table>`;
+
+  document.getElementById("output").innerHTML = html;
+}
+
+function exportCSV() {
+  if (scheduleRows.length === 0) {
+    alert("Generate the schedule first.");
+    return;
+  }
+
+  let csv = "Date,Day,Early,Early,Early,Late,Late\n";
+
+  scheduleRows.forEach(row => {
+    csv += [
+      row.date,
+      row.day,
+      row.early1,
+      row.early2,
+      row.early3,
+      row.late1,
+      row.late2
+    ].join(",") + "\n";
+  });
+
+  downloadFile(csv, "late_schedule.csv", "text/csv");
+}
+
+function exportExcel() {
+  if (scheduleRows.length === 0) {
+    alert("Generate the schedule first.");
+    return;
+  }
+
+  let table = document.getElementById("scheduleTable").outerHTML;
+
+  let excelFile = `
+    <html>
+      <head>
+        <meta charset="UTF-8">
+      </head>
+      <body>
+        ${table}
+      </body>
+    </html>
+  `;
+
+  downloadFile(excelFile, "late_schedule.xls", "application/vnd.ms-excel");
+}
+
+function downloadFile(content, fileName, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const link = document.createElement("a");
+
+  link.href = URL.createObjectURL(blob);
+  link.download = fileName;
+  link.click();
+
+  URL.revokeObjectURL(link.href);
+}
+</script>
+
+</body>
+</html>
